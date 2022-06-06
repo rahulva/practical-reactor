@@ -6,6 +6,7 @@ import reactor.test.StepVerifier;
 
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * It's time to do some data manipulation!
@@ -99,6 +100,13 @@ public class c2_TransformingSequence extends TransformingSequenceBase {
                     .verifyComplete();
     }
 
+    /*
+     *  Transforming
+     *   > Aggregating
+     *    > single value - reduce
+     *    > multiple values - scan
+     */
+
     /**
      * Reduce the values from `numerical_service()` into a single number that is equal to sum of all numbers emitted by
      * this service.
@@ -108,8 +116,12 @@ public class c2_TransformingSequence extends TransformingSequenceBase {
         Mono<Integer> sum =
                 //do your changes here
                 numerical_service()
-//                .reduce((int1, int2) -> int1 + int2);
-                        .reduce(0, Integer::sum);
+               //.reduce((int1, int2) -> int1 + int2);
+               .reduce(0, Integer::sum);
+
+        /*
+        reduce - preoduces a single output (Mono)
+         */
 
         StepVerifier.create(sum)
                 .expectNext(55)
@@ -119,12 +131,24 @@ public class c2_TransformingSequence extends TransformingSequenceBase {
     /***
      *  Reduce the values from `numerical_service()` but emit each intermediary number
      *  Use first Flux value as initial value.
+     *  https://projectreactor.io/docs/core/release/reference/#which.values
+     *  Transforming
+     *   > Aggregating
+     *    > single value - reduce
+     *    > multiple values - scan
      */
     @Test
     public void sum_each_successive() {
-        Flux<Integer> sumEach = numerical_service()
+        numerical_service().doOnNext(x -> System.out.println(x)).subscribe();
+        Flux<Integer> sumEach = numerical_service().log()
                 //todo: do your changes here
-                ;
+                .scan(Integer::sum);
+        //1,   2,   3,   4,    5,   6,   7,   8,   9,   10
+        //1, 1+2, 3+3, 6+4, 10+5, 15+6, 21+7, 28+8, 36+9, 45+10
+        //1,   3,   6,  10,   15,   21,  28, 36, 45, 55
+
+        // scan - emits the intermediate results of the function
+        // (in other words returns the result of the function as an input to next iteration
 
         StepVerifier.create(sumEach)
                     .expectNext(1, 3, 6, 10, 15, 21, 28, 36, 45, 55)
@@ -141,8 +165,7 @@ public class c2_TransformingSequence extends TransformingSequenceBase {
     @Test
     public void sequence_starts_with_zero() {
         Flux<Integer> result = numerical_service()
-                //todo: change this line only
-                ;
+                .startWith(0); //change this line only
 
         StepVerifier.create(result)
                     .expectNext(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
