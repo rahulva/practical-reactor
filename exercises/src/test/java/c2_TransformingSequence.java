@@ -4,6 +4,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /**
@@ -104,14 +105,15 @@ public class c2_TransformingSequence extends TransformingSequenceBase {
      */
     @Test
     public void sequence_sum() {
-        Mono<Integer> sum = null;
-        numerical_service()
-        //todo: do your changes here
-        ;
+        Mono<Integer> sum =
+                //do your changes here
+                numerical_service()
+//                .reduce((int1, int2) -> int1 + int2);
+                        .reduce(0, Integer::sum);
 
         StepVerifier.create(sum)
-                    .expectNext(55)
-                    .verifyComplete();
+                .expectNext(55)
+                .verifyComplete();
     }
 
     /***
