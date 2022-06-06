@@ -100,8 +100,10 @@ public class c3_FilteringSequence extends FilteringSequenceBase {
     @Test
     public void not_a_binary_search() {
         Flux<Integer> numbers = number_service()
-                //todo: change this line only
-                ;
+                .takeLast(100); // change this line only
+        /*
+        Take only number of elements needed from the tail of the Flux
+         */
 
         StepVerifier.create(numbers)
                     .expectNextMatches(i -> i >= 200)
