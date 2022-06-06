@@ -41,9 +41,10 @@ public class c3_FilteringSequence extends FilteringSequenceBase {
      */
     @Test
     public void needle_in_a_haystack() {
-        Flux<Object> strings = mashed_data_service()
-                //todo: change this line only
-                ;
+        //Flux<Object> strings = mashed_data_service()
+                // change this line only
+           Flux<String> strings = mashed_data_service()
+                .ofType(String.class); /* filter by ofType */
 
         StepVerifier.create(strings)
                     .expectNext("1", "String.class")
