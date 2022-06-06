@@ -117,8 +117,9 @@ public class c3_FilteringSequence extends FilteringSequenceBase {
     @Test
     public void golden_middle() {
         Flux<Integer> numbers = number_service()
-                //todo: do your changes here
-                ;
+                // do your changes here
+                .skip(100) // skip 1st 100
+                .take(100); // take only next 100
 
         StepVerifier.create(numbers)
                     .expectNextMatches(i -> i >= 100)
