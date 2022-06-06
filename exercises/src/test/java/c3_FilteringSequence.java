@@ -87,8 +87,7 @@ public class c3_FilteringSequence extends FilteringSequenceBase {
     @Test
     public void dont_take_more_then_you_need() {
         Flux<Integer> numbers = number_service()
-                //todo: change this line only
-                ;
+                .take(100); // change this line only
 
         StepVerifier.create(numbers)
                     .expectNextCount(100)
