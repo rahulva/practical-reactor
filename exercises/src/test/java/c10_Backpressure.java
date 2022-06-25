@@ -21,12 +21,19 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * Read first:
  *
+ * 3.3.5. Backpressure
  * https://projectreactor.io/docs/core/release/reference/#reactive.backpressure
+ * 4.3.4. On Backpressure and Ways to Reshape Requests
  * https://projectreactor.io/docs/core/release/reference/#_on_backpressure_and_ways_to_reshape_requests
+ * Operators that Change the Demand from Downstream
  * https://projectreactor.io/docs/core/release/reference/#_operators_that_change_the_demand_from_downstream
+ * 4.4. Programmatically creating a sequence
  * https://projectreactor.io/docs/core/release/reference/#producing
+ * 4.4.3. Asynchronous but single-threaded: push
  * https://projectreactor.io/docs/core/release/reference/#_asynchronous_but_single_threaded_push
+ * A hybrid push/pull model
  * https://projectreactor.io/docs/core/release/reference/#_a_hybrid_pushpull_model
+ * 4.3.3. An Alternative to Lambdas: BaseSubscriber
  * https://projectreactor.io/docs/core/release/reference/#_an_alternative_to_lambdas_basesubscriber
  *
  * Useful documentation:
@@ -47,8 +54,7 @@ public class c10_Backpressure extends BackpressureBase {
     public void request_and_demand() {
         CopyOnWriteArrayList<Long> requests = new CopyOnWriteArrayList<>();
         Flux<String> messageStream = messageStream1()
-                //todo: change this line only
-                ;
+                .doOnRequest(requests::add);
 
         StepVerifier.create(messageStream, StepVerifierOptions.create().initialRequest(0))
                     .expectSubscription()
@@ -64,15 +70,15 @@ public class c10_Backpressure extends BackpressureBase {
     }
 
     /**
-     * Adjust previous solution in such a way that you limit rate of requests. Number of requested messages stays the
-     * same, but each request should be limited to 1 message.
+     * Adjust previous solution in such a way that you limit rate of requests.
+     * Number of requested messages stays the same, but each request should be limited to 1 message.
      */
     @Test
     public void limited_demand() {
         CopyOnWriteArrayList<Long> requests = new CopyOnWriteArrayList<>();
         Flux<String> messageStream = messageStream2()
-                //todo: do your changes here
-                ;
+                .doOnRequest(requests::add)
+                .limitRate(1);
 
         StepVerifier.create(messageStream, StepVerifierOptions.create().initialRequest(0))
                     .expectSubscription()
@@ -88,13 +94,19 @@ public class c10_Backpressure extends BackpressureBase {
     }
 
     /**
-     * Finish the implementation of the `uuidGenerator` so it exactly requested amount of UUIDs. Or better said, it
-     * should respect the backpressure of the consumer.
+     * Finish the implementation of the `uuidGenerator` so it exactly requested amount of UUIDs.
+     * Or better said, it should respect the backpressure of the consumer.
      */
     @Test
     public void uuid_generator() {
         Flux<UUID> uuidGenerator = Flux.create(sink -> {
-            //todo: do your changes here
+            sink.onRequest(
+                    value -> {
+                        for (int i = 0; i < value; i++) {
+                            sink.next(UUID.randomUUID());
+                        }
+                    }
+            );
         });
 
         StepVerifier.create(uuidGenerator
@@ -116,8 +128,7 @@ public class c10_Backpressure extends BackpressureBase {
     @Test
     public void pressure_is_too_much() {
         Flux<String> messageStream = messageStream3()
-                //todo: change this line only
-                ;
+                .onBackpressureError();
 
         StepVerifier.create(messageStream, StepVerifierOptions.create()
                                                               .initialRequest(0))
@@ -130,15 +141,14 @@ public class c10_Backpressure extends BackpressureBase {
     }
 
     /**
-     * You are receiving messages from malformed publisher that may not respect backpressure. In case that publisher
-     * produces more messages than subscriber is able to consume, buffer them for later consumption without raising an
-     * error.
+     * You are receiving messages from malformed publisher that may not respect backpressure.
+     * In case that publisher produces more messages than subscriber is able to consume,
+     * buffer them for later consumption without raising an error.
      */
     @Test
     public void u_wont_brake_me() {
         Flux<String> messageStream = messageStream4()
-                //todo: change this line only
-                ;
+                .onBackpressureBuffer();
 
         StepVerifier.create(messageStream, StepVerifierOptions.create()
                                                               .initialRequest(0))
@@ -154,8 +164,8 @@ public class c10_Backpressure extends BackpressureBase {
     }
 
     /**
-     * We saw how to react to request demand from producer side. In this part we are going to control demand from
-     * consumer side by implementing BaseSubscriber directly.
+     * We saw how to react to request demand from producer side.
+     * In this part we are going to control demand from consumer side by implementing BaseSubscriber directly.
      * Finish implementation of base subscriber (consumer of messages) with following objectives:
      * - once there is subscription, you should request exactly 10 messages from publisher
      * - once you received 10 messages, you should cancel any further requests from publisher.
@@ -170,16 +180,19 @@ public class c10_Backpressure extends BackpressureBase {
         remoteMessageProducer()
                 .doOnCancel(() -> lockRef.get().countDown())
                 .subscribeWith(new BaseSubscriber<String>() {
-                    //todo: do your changes only within BaseSubscriber class implementation
+
                     @Override
                     protected void hookOnSubscribe(Subscription subscription) {
                         sub.set(subscription);
+                        subscription.request(10); // Request for 10 messages/elements
                     }
 
                     @Override
                     protected void hookOnNext(String s) {
                         System.out.println(s);
-                        count.incrementAndGet();
+                        if (count.incrementAndGet() >= 10) { // Cancel if more than 10 element requested
+                            sub.get().cancel();
+                        }
                     }
                     //-----------------------------------------------------
                 });
