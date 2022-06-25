@@ -2,12 +2,19 @@ import org.junit.jupiter.api.*;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
+import java.time.Duration;
+
 /**
  * Another way of controlling amount of data flowing is batching.
  * Reactor provides three batching strategies: grouping, windowing, and buffering.
  *
  * Read first:
- *
+ *   9.4.1. Grouping with Flux<GroupedFlux<T>>
+ *       - Grouping is the act of splitting the source Flux<T> into multiple batches, each of which matches a key.
+ *   9.4.2. Windowing with Flux<Flux<T>>
+ *       - Windowing is the act of splitting the source Flux<T> into windows, by criteria of size, time,
+ *       boundary-defining predicates, or boundary-defining Publisher.
+ *   9.4.3. Buffering with Flux<List<T>>
  * https://projectreactor.io/docs/core/release/reference/#advanced-three-sorts-batching
  * https://projectreactor.io/docs/core/release/reference/#which.window
  *
@@ -26,10 +33,9 @@ public class c11_Batching extends BatchingBase {
      */
     @Test
     public void batch_writer() {
-        //todo do your changes here
-        Flux<Void> dataStream = null;
-        dataStream();
-        writeToDisk(null);
+        Flux<Void> dataStream = dataStream()
+                .buffer(10)
+                .flatMap(this::writeToDisk);
 
         //do not change the code below
         StepVerifier.create(dataStream)
@@ -39,7 +45,8 @@ public class c11_Batching extends BatchingBase {
     }
 
     /**
-     * You are implementing a command gateway in CQRS based system. Each command belongs to an aggregate and has `aggregateId`.
+     * You are implementing a command gateway in CQRS based system.
+     * Each command belongs to an aggregate and has `aggregateId`.
      * All commands that belong to the same aggregate needs to be sent sequentially, after previous command was sent, to
      * prevent aggregate concurrency issue.
      * But commands that belong to different aggregates can and should be sent in parallel.
@@ -47,10 +54,13 @@ public class c11_Batching extends BatchingBase {
      */
     @Test
     public void command_gateway() {
-        //todo: implement your changes here
-        Flux<Void> processCommands = null;
-        inputCommandStream();
-        sendCommand(null);
+        Flux<Void> processCommands = inputCommandStream()
+                .groupBy(Command::getAggregateId)
+                .flatMap(
+                        aggregateCommands -> //execute commands from same aggregate in parallel
+                                aggregateCommands.concatMap(this::sendCommand) //execute commands from same aggregate sequentially
+
+                );
 
         //do not change the code below
         StepVerifier.create(processCommands)
@@ -59,13 +69,16 @@ public class c11_Batching extends BatchingBase {
 
 
     /**
-     * You are implementing time-series database. You need to implement `sum over time` operator. Calculate sum of all
-     * metric readings that have been published during one second.
+     * You are implementing time-series database.
+     * You need to implement `sum over time` operator.
+     * Calculate sum of all metric readings that have been published during one second.
      */
     @Test
     public void sum_over_time() {
         Flux<Long> metrics = metrics()
-                //todo: implement your changes here
+                .window(Duration.ofSeconds(1))
+                .concatMap(window -> window.reduce(0L, Long::sum))
+                .doOnNext(sum -> System.out.println("sum last second: " + sum))
                 .take(10);
 
         StepVerifier.create(metrics)
