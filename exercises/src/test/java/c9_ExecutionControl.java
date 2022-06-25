@@ -6,7 +6,10 @@ import reactor.core.Exceptions;
 import reactor.core.Scannable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.ParallelFlux;
 import reactor.core.scheduler.NonBlocking;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 
 import java.time.Duration;
@@ -33,23 +36,26 @@ import java.util.stream.Collectors;
  * https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Mono.html
  * https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html
  *
+ * Reactor offers two means of switching the execution context (or Scheduler) in a reactive chain: publishOn and subscribeOn.
+ * Both take a Scheduler and let you switch the execution context to that scheduler.
+ *
  * @author Stefan Dragisic
  */
 public class c9_ExecutionControl extends ExecutionControlBase {
 
     /**
-     * You are working on smartphone app and this part of code should show user his notifications. Since there could be
-     * multiple notifications, for better UX you want to slow down appearance between notifications by 1 second.
+     * You are working on smartphone app and this part of code should show user his notifications.
+     * Since there could be multiple notifications,
+     * for better UX you want to slow down appearance between notifications by 1 second.
      * Pay attention to threading, compare what code prints out before and after solution. Explain why?
      */
     @Test
     public void slow_down_there_buckaroo() {
         long threadId = Thread.currentThread().getId();
         Flux<String> notifications = readNotifications()
-                .doOnNext(System.out::println)
-                //todo: change this line only
-                ;
-
+                .delayElements(Duration.ofSeconds(1L)) // 1 - Delays the elements incoming. - Creates multiple thread.
+                .doOnNext(System.out::println);
+//        notifications.subscribe();
         StepVerifier.create(notifications
                                     .doOnNext(s -> assertThread(threadId)))
                     .expectNextCount(5)
@@ -67,17 +73,18 @@ public class c9_ExecutionControl extends ExecutionControlBase {
     }
 
     /**
-     * You are using free access to remote hosting machine. You want to execute 3 tasks on this machine, but machine
-     * will allow you to execute one task at a time on a given schedule which is orchestrated by the semaphore. If you
-     * disrespect schedule, your access will be blocked.
+     * You are using free access to remote hosting machine.
+     * You want to execute 3 tasks on this machine,
+     * but machine will allow you to execute one task at a time on a given schedule which is orchestrated by the semaphore.
+     * If you disrespect schedule, your access will be blocked.
      * Delay execution of tasks until semaphore signals you that you can execute the task.
      */
     @Test
     public void ready_set_go() {
-        //todo: feel free to change code as you need
         Flux<String> tasks = tasks()
-                .flatMap(Function.identity());
-        semaphore();
+//                .flatMap(Function.identity());
+//        semaphore();
+                .concatMap(task -> task.delaySubscription(semaphore())); // Delay execution of tasks until ...
 
         //don't change code below
         StepVerifier.create(tasks)
@@ -98,13 +105,20 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void non_blocking() {
+        Scheduler scheduler = Schedulers.newParallel("parallel", 4); // 1
+        // Schedulers.boundedElastic();     Bad ??
+        // Schedulers.newParallel("para");  Good
+        // Schedulers.immediate();          Bad - No new thread
+        // Schedulers.parallel();           Good
         Mono<Void> task = Mono.fromRunnable(() -> {
                                   Thread currentThread = Thread.currentThread();
                                   assert NonBlocking.class.isAssignableFrom(Thread.currentThread().getClass());
                                   System.out.println("Task executing on: " + currentThread.getName());
                               })
-                              //todo: change this line only
-                              .then();
+                //.subscribeOn(scheduler) // 1
+                              .then()
+                .subscribeOn(scheduler)  // 1 Both works
+                ;
 
         StepVerifier.create(task)
                     .verifyComplete();
@@ -119,9 +133,10 @@ public class c9_ExecutionControl extends ExecutionControlBase {
     public void blocking() {
         BlockHound.install(); //don't change this line
 
+        Scheduler scheduler = Schedulers.newParallel("Test");
         Mono<Void> task = Mono.fromRunnable(this::blockingRunnable)
-                              //todo: change this line only
-                              .then();
+                .subscribeOn(Schedulers.boundedElastic()) //
+                .then();
 
         StepVerifier.create(task)
                     .verifyComplete();
@@ -132,8 +147,10 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void free_runners() {
-        //todo: feel free to change code as you need
-        Mono<Void> task = Mono.fromRunnable(blockingRunnable());
+        Mono<Void> task = Mono
+                .fromRunnable(blockingRunnable())
+                .subscribeOn(Schedulers.boundedElastic())
+                .then();
 
         Flux<Void> taskQueue = Flux.just(task, task, task)
                                    .concatMap(Function.identity());
@@ -151,10 +168,8 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void sequential_free_runners() {
-        //todo: feel free to change code as you need
         Flux<String> tasks = tasks()
-                .flatMap(Function.identity());
-        ;
+                .flatMapSequential(Function.identity()); // executed in parallel, but preserve the order
 
         //don't change code below
         Duration duration = StepVerifier.create(tasks)
@@ -173,11 +188,14 @@ public class c9_ExecutionControl extends ExecutionControlBase {
      */
     @Test
     public void event_processor() {
-        //todo: feel free to change code as you need
+
         Flux<String> eventStream = eventProcessor()
+                .parallel()                         // 1
+                .runOn(Schedulers.parallel())       // 2
                 .filter(event -> event.metaData.length() > 0)
                 .doOnNext(event -> System.out.println("Mapping event: " + event.metaData))
                 .map(this::toJson)
+                .sequential()                       // 3
                 .concatMap(n -> appendToStore(n).thenReturn(n));
 
         //don't change code below
@@ -208,5 +226,29 @@ public class c9_ExecutionControl extends ExecutionControlBase {
         } catch (JsonProcessingException e) {
             throw Exceptions.propagate(e);
         }
+    }
+
+    /**
+     * my own
+     */
+    @Test
+    public void testPublishOn() {
+        System.out.println(Thread.currentThread().getName());
+        Scheduler s = Schedulers.newParallel("parallel-scheduler", 4);
+
+        final Flux<String> flux = Flux
+                .range(1, 2)
+                .map(i -> {
+                    return 10 + i;
+                })
+                .doOnNext(x -> System.out.println("Map 1 " + Thread.currentThread().getName()))
+                .publishOn(s)
+                .map(i -> {
+                    return "value " + i;
+                })
+                .doOnNext(x -> System.out.println("Map 2 " + Thread.currentThread().getName()));
+
+//        new Thread(() -> ).start();
+        flux.subscribe(System.out::println);
     }
 }
