@@ -1,6 +1,7 @@
 import org.junit.jupiter.api.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 import reactor.test.StepVerifier;
 import reactor.util.context.Context;
 
@@ -13,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * same. In this chapter we will explore usage of Context API.
  *
  * Read first:
- *
+ * 9.8. Adding a Context to a Reactive Sequence
  * https://projectreactor.io/docs/core/release/reference/#context
  *
  * Useful documentation:
@@ -26,13 +27,30 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class c13_Context extends ContextBase {
 
+    @Test
+    public void contextTest() {
+        String key = "message";
+        Mono<String> r = Mono.just("Hello")
+                .contextWrite(ctx -> ctx.put(key, "World"))
+                .flatMap(s -> Mono.deferContextual(ctx ->
+                        Mono.just(s + " " + ctx.getOrDefault(key, "Stranger"))));
+
+        StepVerifier.create(r)
+                .expectNext("Hello Stranger")
+                .verifyComplete();
+    }
+
     /**
-     * You are writing a message handler that is executed by a framework (client). Framework attaches a http correlation
-     * id to the Reactor context. Your task is to extract the correlation id and attach it to the message object.
+     * You are writing a message handler that is executed by a framework (client).
+     * Framework attaches a http correlation id to the Reactor context.
+     * Your task is to extract the correlation id and attach it to the message object.
      */
     public Mono<Message> messageHandler(String payload) {
-        //todo: do your changes withing this method
-        return Mono.just(new Message("set correlation_id from context here", payload));
+        return Mono.deferContextual(contextView -> {
+                    String correlationId = contextView.get(HTTP_CORRELATION_ID);
+                    return Mono.just(new Message(correlationId, payload));
+                }
+        );
     }
 
     @Test
@@ -48,16 +66,17 @@ public class c13_Context extends ContextBase {
     }
 
     /**
-     * Following code counts how many times connection has been established. But there is a bug in the code. Fix it.
+     * Following code counts how many times connection has been established.
+     * But there is a bug in the code.
+     * Fix it.
      */
     @Test
     public void execution_counter() {
+        Context context = Context.of(AtomicInteger.class, new AtomicInteger(0)); // 1
         Mono<Void> repeat = Mono.deferContextual(ctx -> {
             ctx.get(AtomicInteger.class).incrementAndGet();
             return openConnection();
-        });
-        //todo: change this line only
-        ;
+        }).contextWrite(context); // 1
 
         StepVerifier.create(repeat.repeat(4))
                     .thenAwait(Duration.ofSeconds(10))
@@ -76,14 +95,30 @@ public class c13_Context extends ContextBase {
      */
     @Test
     public void pagination() {
-        AtomicInteger pageWithError = new AtomicInteger(); //todo: set this field when error occurs
+        AtomicInteger pageWithError = new AtomicInteger();
 
-        //todo: start from here
-        Flux<Integer> results = getPage(1)
+//        Flux<Integer> results = getPage(1)
+//                .flatMapMany(Page::getResult)
+//                .repeat(10)
+//                .doOnNext(i -> System.out.println("Received: " + i));
+        Flux<Integer> results = Mono.deferContextual(contextView -> getPage(contextView.get(AtomicInteger.class).get()))
+                .doOnEach(pageSignal -> {
+                    if (pageSignal.getType() == SignalType.ON_NEXT) {
+                        pageSignal.getContextView().get(AtomicInteger.class).incrementAndGet();
+                    } else if (pageSignal.getType() == SignalType.ON_ERROR) {
+                        pageWithError.set(pageSignal.getContextView().get(AtomicInteger.class).get());
+                        System.out.println(
+                                "Error has occurred: " + pageSignal.getThrowable().getMessage());
+                        System.out.println("Error occurred at page: " + pageSignal.getContextView()
+                                .get(AtomicInteger.class)
+                                .getAndIncrement());
+                    }
+                })
+                .onErrorResume(e -> Mono.empty())
                 .flatMapMany(Page::getResult)
                 .repeat(10)
-                .doOnNext(i -> System.out.println("Received: " + i));
-
+                .doOnNext(i -> System.out.println("Received: " + i))
+                .contextWrite(Context.of(AtomicInteger.class, new AtomicInteger(0)));
 
         //don't change this code
         StepVerifier.create(results)
