@@ -1,18 +1,26 @@
 import org.junit.jupiter.api.*;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Sinks;
 import reactor.test.StepVerifier;
 
 import java.util.Arrays;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static reactor.core.publisher.Sinks.EmitFailureHandler.FAIL_FAST;
+
 /**
- * In this chapter we will learn difference between hot and cold publishers,
- * how to split a publisher into multiple and how to keep history so late subscriber don't miss any updates.
+ * In this chapter we will learn
+ *  - difference between hot and cold publishers,
+ *  - how to split a publisher into multiple and
+ *  - how to keep history so late subscriber don't miss any updates.
  *
  * Read first:
  *
+ * Cold vs Hot publisher
  * https://projectreactor.io/docs/core/release/reference/#reactor.hotCold
+ * A.9. Multicasting a Flux to several Subscribers
  * https://projectreactor.io/docs/core/release/reference/#which.multicasting
+ * 9.3. Broadcasting to Multiple Subscribers with ConnectableFlux
  * https://projectreactor.io/docs/core/release/reference/#advanced-broadcast-multiple-subscribers-connectableflux
  *
  * Useful documentation:
@@ -25,6 +33,33 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class c12_Broadcasting extends BroadcastingBase {
 
+    @Test
+    public void colsStream() {
+        Flux<String> source = Flux.fromIterable(Arrays.asList("blue", "green", "orange", "purple"))
+                .map(String::toUpperCase);
+
+        source.subscribe(d -> System.out.println("Subscriber 1: " + d));
+        source.subscribe(d -> System.out.println("Subscriber 2: " + d));
+    }
+
+    @Test
+    public void hotStream() {
+        Sinks.Many<String> hotSource = Sinks.unsafe().many().multicast().directBestEffort();
+
+        Flux<String> hotFlux = hotSource.asFlux().map(String::toUpperCase);
+
+        hotFlux.subscribe(d -> System.out.println("Subscriber 1 to Hot Source: " + d));
+
+        hotSource.emitNext("blue", FAIL_FAST);
+        hotSource.tryEmitNext("green").orThrow();
+
+        hotFlux.subscribe(d -> System.out.println("Subscriber 2 to Hot Source: " + d));
+
+        hotSource.emitNext("orange", FAIL_FAST);
+        hotSource.emitNext("purple", FAIL_FAST);
+        hotSource.emitComplete(FAIL_FAST);
+    }
+
     /**
      * Split incoming message stream into two streams, one contain user that sent message and second that contains
      * message payload.
@@ -32,8 +67,8 @@ public class c12_Broadcasting extends BroadcastingBase {
     @Test
     public void sharing_is_caring() throws InterruptedException {
         Flux<Message> messages = messageStream()
-                //todo: do your changes here
-                ;
+                .publish()
+                .refCount(2);
 
         //don't change code below
         Flux<String> userStream = messages.map(m -> m.user);
@@ -60,8 +95,9 @@ public class c12_Broadcasting extends BroadcastingBase {
     @Test
     public void hot_vs_cold() {
         Flux<String> updates = systemUpdates()
-                //todo: do your changes here
-                ;
+                .publish()
+                .autoConnect();
+        //.share()
 
         //subscriber 1
         StepVerifier.create(updates.take(3).doOnNext(n -> System.out.println("subscriber 1 got: " + n)))
@@ -75,15 +111,15 @@ public class c12_Broadcasting extends BroadcastingBase {
     }
 
     /**
-     * In previous exercise second subscriber subscribed to update later, and it missed some updates. Adapt previous
+     * In previous exercise second subscriber subscribed to update later, and it missed some updates.
+     * Adapt previous
      * solution so second subscriber will get all updates, even the one's that were broadcaster before its
      * subscription.
      */
     @Test
     public void history_lesson() {
         Flux<String> updates = systemUpdates()
-                //todo: do your changes here
-                ;
+                .cache();
 
         //subscriber 1
         StepVerifier.create(updates.take(3).doOnNext(n -> System.out.println("subscriber 1 got: " + n)))
